@@ -1,0 +1,209 @@
+---
+title: "Math-3333-Project"
+author: "Mehedi Hossain Rafi"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Setting the data
+```{r data}
+library(jpeg)
+library(neuralnet)
+library(pROC)
+
+pm <- read.csv("C:\\Users\\mehed\\OneDrive\\Desktop\\Math-3333\\photoMetaData.csv")
+n <- nrow(pm)
+
+trainFlag <- (runif(n) > 0.2)
+y <- as.numeric(pm$category == "outdoor-day")
+
+
+# Define grid size
+grid_rows <- 10
+grid_cols <- 10
+  
+  
+X <- matrix(NA, ncol=3*10*10, nrow=n)
+for (j in 1:n) {
+  img <- readJPEG(paste0("C:\\Users\\mehed\\OneDrive\\Desktop\\Math-3333\\columbiaImages\\columbiaImages\\",pm$name[j]))
+  
+  
+  img_height <- dim(img)[1]  # rows
+  img_width <- dim(img)[2]   # columns
+
+  
+
+  # Compute the height and width of each tile
+  tile_height <- floor(img_height / grid_rows)
+  tile_width <- floor(img_width / grid_cols)
+
+  # Create a list to store the 100 tiles
+  tiles <- list()
+
+  # Extract tiles
+  count <- 1
+  for (i in 0:(grid_rows - 1)) {
+    for (k in 0:(grid_cols - 1)) {
+      row_start <- i * tile_height + 1
+      row_end <- (i + 1) * tile_height
+      col_start <- k * tile_width + 1
+      col_end <- (k + 1) * tile_width
+    
+      # Extract the tile
+      tile <- img[row_start:row_end, col_start:col_end, ]
+      tiles[[count]] <- tile
+      count <- count + 1
+    }
+  }
+  
+  features <- c()
+  for (l in 1:length(tiles)) {
+    # Apply median across the 3rd dimension (RGB), and store the result
+    features <- c(features, apply(tiles[[l]], 3, median))
+  }
+  X[j, ] <- features
+  
+}
+
+photo_data <- as.data.frame(X)
+photo_data$outdoor <- y
+
+cut_off = 0.5
+
+trainset <- photo_data[trainFlag, ]
+testset <- photo_data[!trainFlag, ]
+
+
+```
+
+## logistic regression
+```{r logistic regression}
+
+# build a glm model on these median values
+out <- glm(y ~ X, family=binomial, subset=trainFlag)
+out$iter
+summary(out)
+
+# How well did we do?
+pred <- 1 / (1 + exp(-1 * cbind(1,X) %*% coef(out)))
+
+y[order(pred)]
+y[!trainFlag][order(pred[!trainFlag])]
+
+mean((as.numeric(pred > 0.5) == y)[trainFlag])
+mean((as.numeric(pred > 0.5) == y)[!trainFlag])
+
+
+
+
+results_logit <- data.frame(actual = y[!trainFlag], prediction = pred[!trainFlag])
+
+results_logit$predicted_class <- ifelse(results_logit$prediction >= cut_off, 1, 0)
+roundedresults_logit <- data.frame(actual = results_logit$actual, prediction = results_logit$predicted_class)
+
+
+conf_mat_logit <- table(roundedresults_logit$actual, roundedresults_logit$prediction)
+print(conf_mat_logit)
+
+
+
+# Compute ROC and AUC
+roc_obj_logit <- roc(results_logit$actual, results_logit$prediction)
+
+# Plot with adjusted parameters
+# Assuming roc_obj contains fpr and tpr components
+plot(roc_obj_logit$fpr, roc_obj_logit$tpr, 
+     type = "l", 
+     main = "ROC Curve for Logistic Regression", 
+     xlab = "False Positive Rate", 
+     ylab = "True Positive Rate",
+     col = "#1c61b6", 
+     lwd = 2)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal reference line
+
+# Add AUC if you have it (you'll need to calculate separately)
+# text(0.6, 0.2, paste("AUC =", round(auc_value, 3)))
+
+
+auc_value_logit <- auc(roc_obj_logit)
+print(auc_value_logit)
+
+
+
+
+
+
+
+```
+
+## Neural Network
+
+```{r Neural Network}
+### Photograph Classification with Neural Network ###
+
+
+
+
+
+
+
+# Create training and test sets
+
+
+nn <- neuralnet(outdoor ~ ., data=photo_data[trainFlag, ], hidden=c(256,128,64,32), linear.output=FALSE, threshold=0.01)
+#nn$result.matrix
+#plot(nn)
+
+
+temp_test <- subset(testset, select = -outdoor)
+nn.results <- compute(nn, temp_test)
+results <- data.frame(actual = testset$outdoor, prediction = nn.results$net.result)
+
+
+
+
+results$predicted_class <- ifelse(results$prediction >= cut_off, 1, 0)
+roundedresultsdf <- data.frame(actual = results$actual, prediction = results$predicted_class)
+
+
+conf_mat <- table(roundedresultsdf$actual, roundedresultsdf$prediction)
+print(conf_mat)
+
+
+```
+## ROC And AUC
+
+```{r ROC}
+
+# Compute ROC and AUC
+roc_obj <- roc(results$actual, results$prediction)
+
+# Plot with adjusted parameters
+# Assuming roc_obj contains fpr and tpr components
+plot(roc_obj$fpr, roc_obj$tpr, 
+     type = "l", 
+     main = "ROC Curve For Neural Network", 
+     xlab = "False Positive Rate", 
+     ylab = "True Positive Rate",
+     col = "#1c61b6", 
+     lwd = 2)
+abline(a = 0, b = 1, lty = 2)  # Add diagonal reference line
+
+# Add AUC if you have it (you'll need to calculate separately)
+# text(0.6, 0.2, paste("AUC =", round(auc_value, 3)))
+
+
+auc_value <- auc(roc_obj)
+print(auc_value)
+
+
+
+
+
+```
+
